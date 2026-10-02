@@ -1,0 +1,175 @@
+/* 弹幕地狱 · Playwright 自动化验证（msedge 无头） */
+const path = require('path');
+const { chromium } = require(path.join('E:/ZCODE/ink-jiangnan/node_modules/playwright'));
+
+const BASE = process.env.URL || 'http://127.0.0.1:8077/';
+const SHOTS = path.join(__dirname, '..', 'shots');
+const ok = [], bad = [];
+function assert(name, cond, extra = '') {
+  (cond ? ok : bad).push(name + (extra ? ` (${extra})` : ''));
+  console.log((cond ? '  ✓ ' : '  ✗ ') + name + (extra ? ` — ${extra}` : ''));
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+(async () => {
+  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+
+  /* ============ 第一部分：流程测试（god + 快进） ============ */
+  console.log('\n== 流程测试 ==');
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push('pageerror: ' + e.message));
+  page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+
+  await page.goto(BASE + '?seed=101');
+  await sleep(600);
+  await page.screenshot({ path: path.join(SHOTS, '01-start.png') });
+  const hi = await page.evaluate(() => __dh ? true : false);
+  assert('调试钩子 __dh 存在', hi);
+
+  await page.click('#btn-start');
+  await page.waitForFunction(() => __dh.state === 'playing', null, { timeout: 5000 });
+  assert('开始游戏 → playing', true);
+
+  await page.waitForFunction(() => __dh.stage === 'fight', null, { timeout: 15000 });
+  await sleep(2200);
+  const b1 = await page.evaluate(() => ({ idx: __dh.bossIndex, hp: __dh.hp, max: __dh.maxhp, bullets: __dh.bullets }));
+  assert('Boss1 出战', b1.idx === 0 && b1.hp > 0, JSON.stringify(b1));
+  assert('Boss1 有弹幕', b1.bullets > 10, `bullets=${b1.bullets}`);
+  await page.screenshot({ path: path.join(SHOTS, '02-boss1.png') });
+
+  // 炸弹
+  const bombs0 = await page.evaluate(() => __dh.bombs);
+  const nBefore = await page.evaluate(() => __dh.bullets);
+  await page.evaluate(() => __dh.bomb());
+  const bombs1 = await page.evaluate(() => __dh.bombs);
+  const nAfter = await page.evaluate(() => __dh.bullets);
+  assert('炸弹消耗并清屏', bombs1 === bombs0 - 1 && nAfter < 5, `${bombs0}→${bombs1}, 弹${nBefore}→${nAfter}`);
+
+  // 擦弹应该有积分活动
+  const scoreMid = await page.evaluate(() => __dh.score);
+  assert('得分在增长(命中Boss)', scoreMid > 0, `score=${scoreMid}`);
+
+  // 阶段切换：压血量到 60%
+  await page.evaluate(() => { __dh.god = true; __dh.ts = 2; });
+  await page.evaluate(() => __dh.setHp(0.6));
+  const ph2 = await page.evaluate(() => __dh.phase);
+  assert('66% 阈值 → 第二阶段', ph2 === 2, `phase=${ph2}`);
+  await page.evaluate(() => __dh.setHp(0.25));
+  const ph3 = await page.evaluate(() => __dh.phase);
+  assert('33% 阈值 → 最终阶段', ph3 === 3, `phase=${ph3}`);
+  await page.screenshot({ path: path.join(SHOTS, '03-boss1-phase3.png') });
+
+  // 击破 Boss1 → 补炸弹 → Boss2（奖励在击破动画后发放，等下一战开打再读）
+  await page.evaluate(() => __dh.killBoss());
+  await page.waitForFunction(() => __dh.bossIndex === 1 && __dh.stage === 'fight', null, { timeout: 20000 });
+  const bombs2 = await page.evaluate(() => __dh.bombs);
+  assert('击破 Boss 补一颗炸弹', bombs2 === Math.min(bombs1 + 1, 6), `bombs=${bombs2}`);
+  await sleep(1500);
+  const b2 = await page.evaluate(() => ({ idx: __dh.bossIndex, name: document.getElementById('boss-name').textContent, bullets: __dh.bullets }));
+  assert('Boss2 出战(六边形)', b2.idx === 1, JSON.stringify(b2));
+  await page.screenshot({ path: path.join(SHOTS, '04-boss2.png') });
+
+  // Boss3
+  await page.evaluate(() => __dh.killBoss());
+  await page.waitForFunction(() => __dh.bossIndex === 2 && __dh.stage === 'fight', null, { timeout: 20000 });
+  await sleep(1500);
+  assert('Boss3 出战(圆形)', true);
+  await page.screenshot({ path: path.join(SHOTS, '05-boss3.png') });
+  await page.evaluate(() => __dh.setHp(0.05));
+  await page.evaluate(() => __dh.killBoss());
+  await page.waitForFunction(() => __dh.state === 'win', null, { timeout: 15000 });
+  await sleep(400);
+  const winShown = await page.evaluate(() => !document.getElementById('screen-end').classList.contains('hidden'));
+  assert('通关画面出现', winShown);
+  await page.screenshot({ path: path.join(SHOTS, '06-win.png') });
+
+  // 失败路径
+  await page.reload();
+  await page.waitForFunction(() => !!window.__dh, null, { timeout: 5000 });
+  await page.click('#btn-start');
+  await page.waitForFunction(() => __dh.state === 'playing', null, { timeout: 5000 });
+  await page.evaluate(() => { __dh.setLives(0); __dh.killPlayer(); });
+  await page.waitForFunction(() => __dh.state === 'over', null, { timeout: 8000 });
+  await sleep(400);
+  const overShown = await page.evaluate(() => !document.getElementById('screen-end').classList.contains('hidden'));
+  assert('失败画面出现', overShown);
+  await page.screenshot({ path: path.join(SHOTS, '07-over.png') });
+  await ctx.close();
+
+  /* ============ 第二部分：手机触控 ============ */
+  console.log('\n== 手机触控测试 ==');
+  const mctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const mpage = await mctx.newPage();
+  mpage.on('pageerror', e => errors.push('mobile pageerror: ' + e.message));
+  await mpage.goto(BASE + '?seed=77');
+  await sleep(500);
+  await mpage.tap('#btn-start');
+  await mpage.waitForFunction(() => __dh.state === 'playing', null, { timeout: 5000 });
+  await mpage.waitForFunction(() => __dh.stage === 'fight', null, { timeout: 15000 });
+  const p0 = await mpage.evaluate(() => ({ x: __dh.px, y: __dh.py }));
+  // 触摸拖动（手指在屏幕下方，验证相对拖动）
+  const cdp = await mctx.newCDPSession(mpage);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 195, y: 700 }] });
+  for (let i = 1; i <= 5; i++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 195 - i * 12, y: 700 - i * 10 }] });
+    await sleep(40);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await sleep(150);
+  const p1 = await mpage.evaluate(() => ({ x: __dh.px, y: __dh.py }));
+  assert('拖动控制飞船（手指未压住飞船）', Math.abs(p1.x - p0.x) > 20 && Math.abs(p1.y - p0.y) > 15, `${JSON.stringify(p0)}→${JSON.stringify(p1)}`);
+  // 双击放炸弹
+  const mb0 = await mpage.evaluate(() => __dh.bombs);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 300, y: 700 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await sleep(120);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 300, y: 700 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await sleep(150);
+  const mb1 = await mpage.evaluate(() => __dh.bombs);
+  assert('双击释放炸弹', mb1 === mb0 - 1, `${mb0}→${mb1}`);
+  await mpage.screenshot({ path: path.join(SHOTS, '08-mobile-fight.png') });
+  await mctx.close();
+
+  /* ============ 第三部分：AI 平衡性试玩 ============ */
+  console.log('\n== AI 平衡性试玩（3 局，ts=3 加速） ==');
+  const results = [];
+  const balRuns = [12, 34, 56].map(async seed => {
+    const bctx = await browser.newContext({ viewport: { width: 900, height: 1000 } });
+    const bp = await bctx.newPage();
+    bp.on('pageerror', e => errors.push(`balance[${seed}] pageerror: ` + e.message));
+    await bp.goto(BASE + `?auto=1&ts=3&seed=${seed}`);
+    await bp.click('#btn-start');
+    const t0 = Date.now();
+    let last = {};
+    while (Date.now() - t0 < 420000) {
+      await sleep(2500);
+      last = await bp.evaluate(() => ({
+        state: __dh.state, boss: __dh.bossIndex, stage: __dh.stage,
+        lives: __dh.lives, bombs: __dh.bombs, score: __dh.score,
+        phase: __dh.phase, bullets: __dh.maxBullets, deaths: __dh.time ? 3 - Math.max(0, __dh.lives) : 0,
+      })).catch(() => last);
+      if (last.state === 'win' || last.state === 'over') break;
+    }
+    const fin = await bp.evaluate(() => ({
+      state: __dh.state, boss: __dh.bossIndex, lives: __dh.lives,
+      score: __dh.score, graze: __dh.graze, maxBullets: __dh.maxBullets, time: __dh.time,
+    })).catch(e => ({ err: String(e) }));
+    results.push({ seed, ...fin });
+    console.log(`  seed=${seed} → ${fin.state} boss=${fin.boss} lives=${fin.lives} score=${fin.score} graze=${fin.graze} maxBullets=${fin.maxBullets} simTime=${Math.round(fin.time || 0)}s (wall ${Math.round((Date.now() - t0) / 1000)}s)`);
+    await bctx.close();
+  });
+  await Promise.all(balRuns);
+
+  const wins = results.filter(r => r.state === 'win').length;
+  console.log(`\nAI 战绩: ${wins}/${results.length} 通关`);
+  assert('AI 至少 2/3 通关（难度上限合理）', wins >= 2, `${wins}/${results.length}`);
+
+  assert('全程无 JS 错误', errors.length === 0, errors.slice(0, 5).join(' | '));
+
+  await browser.close();
+  console.log(`\n==== 结果: ${ok.length} 通过, ${bad.length} 失败 ====`);
+  process.exit(bad.length ? 1 : 0);
+})().catch(e => { console.error('FATAL', e); process.exit(2); });

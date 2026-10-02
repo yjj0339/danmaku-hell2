@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>弹幕地狱 · DANMAKU HELL</title>
+<meta name="description" content="浅色 CRT 风格弹幕射击：连续击败三角、六边、圆环三位 Boss。擦弹加分，双击放炸弹。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23eef2f8'/%3E%3Cpath d='M32 12 L52 48 L12 48 Z' fill='%23ef3f8f' stroke='%23b3175e' stroke-width='4' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- 战斗 HUD -->
+<div id="hud">
+  <div id="hud-left">
+    <div class="card score">得分 <b id="ui-score">0</b></div>
+    <div class="card">最高 <b id="ui-hi">0</b></div>
+    <div class="card">擦弹 <b id="ui-graze">0</b></div>
+  </div>
+  <div id="hud-right">
+    <div class="card icons"><span class="lbl">残机</span><span id="ui-lives"></span></div>
+    <div class="card icons"><span class="lbl">炸弹</span><span id="ui-bombs"></span></div>
+    <div class="hud-btns">
+      <button id="btn-mute" title="静音 (M)">🔊</button>
+      <button id="btn-pause" title="暂停 (P)">⏸</button>
+    </div>
+  </div>
+  <div id="bossbar" class="hidden">
+    <div id="boss-name">BOSS</div>
+    <div class="bar"><div id="boss-hp"></div><i class="notch" style="left:33.33%"></i><i class="notch" style="left:66.66%"></i></div>
+  </div>
+</div>
+
+<div id="banners"></div>
+<div id="flash"></div>
+
+<!-- 开始画面 -->
+<div class="screen" id="screen-start">
+  <div class="title-wrap">
+    <h1 class="title">弹幕地狱</h1>
+    <div class="subtitle">DANMAKU&nbsp;HELL</div>
+    <div class="bosses"><span style="--c:#ef3f8f">▲</span><span style="--c:#7b46ff">⬡</span><span style="--c:#ff5a2e">●</span></div>
+  </div>
+  <div class="panel">
+    <div><b class="kb">电脑</b><b class="tc">操作</b>：方向键 / WASD 移动 · <span class="kb">Shift 慢速微调 ·</span> X / 空格 释放炸弹 · P 暂停 · M 静音</div>
+    <div class="tc">拖动屏幕任意位置控制飞船（手指不必压住飞船）· <b>双击</b>释放炸弹</div>
+    <div><b>规则</b>：自动开火 · 飞船中心是小判定点，贴着子弹飞过可「擦弹」加分 · 连续击破三位 Boss · 击破 Boss 补充 1 颗炸弹</div>
+  </div>
+  <button id="btn-start" class="btn">开 始 游 戏</button>
+  <div class="hiscore">最高分 <b id="ui-hi-start">0</b></div>
+  <div class="hint"><span class="kb">点击按钮或按 回车 / 空格 开始</span><span class="tc">点击按钮开始</span></div>
+</div>
+
+<!-- 结算画面（失败 / 通关 共用） -->
+<div class="screen hidden" id="screen-end">
+  <h1 class="title small" id="end-title">游戏结束</h1>
+  <div class="subtitle" id="end-sub">GAME OVER</div>
+  <div class="panel stats" id="end-stats"></div>
+  <button id="btn-again" class="btn">再 来 一 次</button>
+  <div class="hint">按 回车 / 空格 重新开始</div>
+</div>
+
+<!-- 暂停画面 -->
+<div class="screen hidden" id="screen-pause">
+  <h1 class="title small">暂停</h1>
+  <div class="subtitle">PAUSED</div>
+  <div class="btn-row">
+    <button id="btn-resume" class="btn">继 续</button>
+    <button id="btn-restart" class="btn ghost">重新开始</button>
+  </div>
+</div>
+
+<!-- CRT 覆盖层 -->
+<div id="crt"><div id="rollbar"></div></div>
+
+<script src="js/audio.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
