@@ -1,6 +1,6 @@
 # 弹幕地狱 · DANMAKU HELL
 
-> 线上地址：**https://yjj0339.github.io/danmaku-hell/** （部署后回填）
+> 线上地址：**https://yjj0339.github.io/danmaku-hell2/** （手机可直接扫码打开）
 
 浅色 CRT 风格纵版弹幕射击。连破三角、六边、圆环三位 Boss，每位三阶段变换弹幕；擦弹加分，炸弹清屏。
 
